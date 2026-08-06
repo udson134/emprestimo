@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Empréstimo de Laboratório</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        /* Estilo rápido para as abas */
+        .tab-container { display: flex; gap: 10px; margin-bottom: 20px; }
+        .tab-btn { padding: 10px 20px; background: #ddd; border: none; cursor: pointer; font-weight: bold; border-radius: 5px; }
+        .tab-btn.active { background: #007bff; color: white; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Controle de Equipamentos do Laboratório</h1>
+        <p>Sistema de Gestão e Empréstimos</p>
+    </header>
+
+    <main class="container">
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <ul class="flashes">
+            {% for category, message in messages %}
+              <li class="flash-message flash-{{ category }}">{{ message }}</li>
+            {% endfor %}
+            </ul>
+          {% endif %}
+        {% endwith %}
+
+        <div class="tab-container">
+            <button class="tab-btn active" onclick="mudarAba(event, 'aba-cadastros')">📦 Gestão de Cadastros</button>
+            <button class="tab-btn" onclick="mudarAba(event, 'aba-emprestimos')">🔄 Empréstimos e Devoluções</button>
+        </div>
+
+        <div id="aba-cadastros" class="tab-content active">
+            
+            <section class="card">
+                <h2>Cadastrar Novo Aluno</h2>
+                <form action="/adicionar_aluno" method="POST">
+                    <div class="form-group">
+                        <label for="matricula">Matrícula:</label>
+                        <input type="text" id="matricula" name="matricula" required placeholder="Ex: 2026001">
+                    </div>
+                    <div class="form-group">
+                        <label for="nome">Nome Completo:</label>
+                        <input type="text" id="nome" name="nome" required placeholder="Ex: Ana Clara Silva">
+                    </div>
+                    <button type="submit" class="btn">Salvar Aluno</button>
+                </form>
+            </section>
+
+            <section class="card">
+                <h2>Alunos Cadastrados no Sistema</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Matrícula</th>
+                            <th>Nome</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for aluno in lista_alunos %}
+                        <tr>
+                            <td>{{ aluno[0] }}</td>
+                            <td>{{ aluno[1] }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="2">Nenhum aluno cadastrado.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </section>
+
+            <section class="card">
+                <h2>Cadastrar Novo Equipamento</h2>
+                <form action="/adicionar_equipamento" method="POST">
+                    <div class="form-group">
+                        <label for="numero_serie">Número de Série:</label>
+                        <input type="text" id="numero_serie" name="numero_serie" required placeholder="Ex: SN-100">
+                    </div>
+                    <div class="form-group">
+                        <label for="nome_eq">Nome do Equipamento:</label>
+                        <input type="text" id="nome_eq" name="nome_eq" required placeholder="Ex: Multímetro Digital">
+                    </div>
+                    <button type="submit" class="btn">Salvar Equipamento</button>
+                </form>
+            </section>
+
+            <section class="card">
+                <h2>Equipamentos Cadastrados no Sistema</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Número de Série</th>
+                            <th>Nome do Equipamento</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for eq in lista_equipamentos %}
+                        <tr>
+                            <td>{{ eq[0] }}</td>
+                            <td>{{ eq[1] }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="2">Nenhum equipamento cadastrado.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </section>
+        </div>
+
+        <div id="aba-emprestimos" class="tab-content">
+            
+            <section class="card">
+                <h2>Realizar Novo Empréstimo</h2>
+                <form action="/adicionar_emprestimo" method="POST">
+                    <div class="form-group">
+                        <label for="aluno_select">Selecione o Aluno:</label>
+                        <select id="aluno_select" name="matricula" required style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ccc;">
+                            <option value="">-- Escolha um aluno --</option>
+                            {% for aluno in lista_alunos %}
+                                <option value="{{ aluno[0] }}">{{ aluno[1] }} (Matrícula: {{ aluno[0] }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="equipamento_select">Selecione o Equipamento:</label>
+                        <select id="equipamento_select" name="numero_serie" required style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ccc;">
+                            <option value="">-- Escolha um equipamento --</option>
+                            {% for eq in lista_equipamentos %}
+                                <option value="{{ eq[0] }}">{{ eq[1] }} (SN: {{ eq[0] }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="data_devolucao">Data Prevista para Devolução:</label>
+                        <input type="date" id="data_devolucao" name="data_devolucao" required min="{{ data_hoje }}">
+                    </div>
+
+                    <button type="submit" class="btn">Realizar Empréstimo</button>
+                </form>
+            </section>
+
+            <section class="card">
+                <h2>Equipamentos Emprestados Atualmente</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Nº Série</th>
+                            <th>Matrícula do Aluno</th>
+                            <th>Data Empréstimo</th>
+                            <th>Previsão Devolução</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for emp in emprestimos %}
+                        <tr>
+                            <td>{{ emp[2] }}</td>
+                            <td>{{ emp[1] }}</td>
+                            <td>{{ emp[3] }}</td>
+                            <td>{{ emp[4] }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="4">Nenhum empréstimo ativo no momento.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </section>
+
+            <section class="card alert-card">
+                <h2>Relatório de Atrasos (Bloqueios)</h2>
+                <ul id="lista-atrasos">
+                    {% for atraso in atrasos %}
+                        <li>Matrícula: {{ atraso[0] }} - Equipamento SN: {{ atraso[1] }} (Vencido desde: {{ atraso[2] }})</li>
+                    {% else %}
+                        <li>Nenhum atraso registrado no momento.</li>
+                    {% endfor %}
+                </ul>
+            </section>
+        </div>
+
+    </main>
+
+    <script>
+        function mudarAba(evt, idAba) {
+            var conteudos = document.getElementsByClassName("tab-content");
+            for (var i = 0; i < conteudos.length; i++) {
+                conteudos[i].classList.remove("active");
+            }
+            var botoes = document.getElementsByClassName("tab-btn");
+            for (var i = 0; i < botoes.length; i++) {
+                botoes[i].classList.remove("active");
+            }
+            document.getElementById(idAba).classList.add("active");
+            evt.currentTarget.classList.add("active");
+        }
+    </script>
+</body>
+</html>
