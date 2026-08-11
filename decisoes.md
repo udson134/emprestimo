@@ -202,8 +202,9 @@
 
 ## Registro de tempo
 
-Horas escrevendo ou gerando código: ___  Tiago: 1 hora
-Horas decidindo o que o sistema deveria fazer: ___ Tiago: 1 hora
+Horas escrevendo ou gerando código: udson : 1 hrs Tiago: 1 hora
+Horas decidindo o que o sistema deveria fazer: udson : 3 hrs Tiago: 1 hora
+
 
 *(preencher com a estimativa honesta da dupla — não compõe a nota)*
 
