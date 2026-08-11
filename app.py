@@ -5,25 +5,41 @@ from datetime import date
 app = Flask(__name__)
 app.secret_key = 'chave_secreta_laboratorio'
 
-def init_db():
-    conn = sqlite3.connect('database.db')
+DB = 'database.db'
+
+
+def get_conn():
+    """Abre uma conexão com o banco já com FOREIGN KEY habilitada.
+
+    PRAGMA foreign_keys é uma configuração por conexão no SQLite: ativá-la
+    apenas em init_db() não tem efeito nas conexões abertas pelas rotas.
+    Sem isso, era possível inserir um empréstimo referenciando uma
+    matrícula ou número de série inexistentes, pois a FOREIGN KEY
+    declarada nunca era de fato verificada.
+    """
+    conn = sqlite3.connect(DB)
     conn.execute("PRAGMA foreign_keys = ON;")
+    return conn
+
+
+def init_db():
+    conn = get_conn()
     cursor = conn.cursor()
-    
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS alunos (
             matricula TEXT PRIMARY KEY,
             nome TEXT NOT NULL
         )
     ''')
-    
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS equipamentos (
             numero_serie TEXT PRIMARY KEY,
             nome TEXT NOT NULL
         )
     ''')
-    
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS emprestimos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,17 +47,40 @@ def init_db():
             numero_serie_equipamento TEXT NOT NULL,
             data_emprestimo DATE NOT NULL,
             data_devolucao_prevista DATE NOT NULL,
+            data_devolucao_real DATE,
             status TEXT DEFAULT 'Ativo',
             FOREIGN KEY (matricula_aluno) REFERENCES alunos(matricula),
             FOREIGN KEY (numero_serie_equipamento) REFERENCES equipamentos(numero_serie)
         )
     ''')
+
+    # Migração leve: bancos criados pela versão anterior do app não tinham
+    # a coluna data_devolucao_real. Adiciona se ainda não existir, para não
+    # quebrar bancos já em uso.
+    cursor.execute("PRAGMA table_info(emprestimos)")
+    colunas = [c[1] for c in cursor.fetchall()]
+    if 'data_devolucao_real' not in colunas:
+        cursor.execute("ALTER TABLE emprestimos ADD COLUMN data_devolucao_real DATE")
+
+    # Índices para as colunas usadas em toda consulta de status/atraso.
+    # Sem volume grande de dados isso não faz diferença perceptível, mas
+    # evita scan completo da tabela à medida que o histórico cresce.
+    cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_emprestimos_matricula
+        ON emprestimos (matricula_aluno, status)
+    ''')
+    cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_emprestimos_serie
+        ON emprestimos (numero_serie_equipamento, status)
+    ''')
+
     conn.commit()
     conn.close()
 
+
 def aluno_tem_atraso(matricula):
     hoje = date.today().isoformat()
-    conn = sqlite3.connect('database.db')
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute('''
         SELECT COUNT(*) FROM emprestimos
@@ -51,51 +90,53 @@ def aluno_tem_atraso(matricula):
     conn.close()
     return atrasos > 0
 
+
 # Rota Principal: Carrega a página e as listas para os menus suspensos
 @app.route('/')
 def index():
     hoje = date.today().isoformat()
-    conn = sqlite3.connect('database.db')
+    conn = get_conn()
     cursor = conn.cursor()
-    
+
     # Buscar lista de alunos cadastrados
     cursor.execute("SELECT matricula, nome FROM alunos")
     lista_alunos = cursor.fetchall()
-    
+
     # Buscar lista de equipamentos cadastrados
     cursor.execute("SELECT numero_serie, nome FROM equipamentos")
     lista_equipamentos = cursor.fetchall()
-    
+
     # Buscar empréstimos ativos
     cursor.execute('''
         SELECT e.id, e.matricula_aluno, e.numero_serie_equipamento, e.data_emprestimo, e.data_devolucao_prevista
         FROM emprestimos e WHERE e.status = 'Ativo'
     ''')
     emprestimos = cursor.fetchall()
-    
+
     # Buscar atrasos
     cursor.execute('''
         SELECT e.matricula_aluno, e.numero_serie_equipamento, e.data_devolucao_prevista
         FROM emprestimos e WHERE e.status = 'Ativo' AND e.data_devolucao_prevista < ?
     ''', (hoje,))
     atrasos = cursor.fetchall()
-    
+
     conn.close()
-    return render_template('index.html', 
-                           lista_alunos=lista_alunos, 
-                           lista_equipamentos=lista_equipamentos, 
-                           emprestimos=emprestimos, 
-                           atrasos=atrasos, 
+    return render_template('index.html',
+                           lista_alunos=lista_alunos,
+                           lista_equipamentos=lista_equipamentos,
+                           emprestimos=emprestimos,
+                           atrasos=atrasos,
                            data_hoje=hoje)
+
 
 # Rota para cadastrar Aluno separadamente
 @app.route('/adicionar_aluno', methods=['POST'])
 def adicionar_aluno():
     matricula = request.form['matricula']
     nome = request.form['nome']
-    
+
     try:
-        conn = sqlite3.connect('database.db')
+        conn = get_conn()
         cursor = conn.cursor()
         cursor.execute('INSERT INTO alunos (matricula, nome) VALUES (?, ?)', (matricula, nome))
         conn.commit()
@@ -103,17 +144,18 @@ def adicionar_aluno():
         flash('Aluno cadastrado com sucesso!', 'sucesso')
     except sqlite3.IntegrityError:
         flash('Erro: Já existe um aluno cadastrado com esta matrícula.', 'erro')
-        
+
     return redirect(url_for('index'))
+
 
 # Rota para cadastrar Equipamento separadamente
 @app.route('/adicionar_equipamento', methods=['POST'])
 def adicionar_equipamento():
     numero_serie = request.form['numero_serie']
     nome_eq = request.form['nome_eq']
-    
+
     try:
-        conn = sqlite3.connect('database.db')
+        conn = get_conn()
         cursor = conn.cursor()
         cursor.execute('INSERT INTO equipamentos (numero_serie, nome) VALUES (?, ?)', (numero_serie, nome_eq))
         conn.commit()
@@ -121,8 +163,9 @@ def adicionar_equipamento():
         flash('Equipamento cadastrado com sucesso!', 'sucesso')
     except sqlite3.IntegrityError:
         flash('Erro: Já existe um equipamento com este número de série.', 'erro')
-        
+
     return redirect(url_for('index'))
+
 
 # Rota para registrar o Empréstimo usando os itens já cadastrados
 @app.route('/adicionar_emprestimo', methods=['POST'])
@@ -132,20 +175,28 @@ def adicionar_emprestimo():
     data_devolucao = request.form['data_devolucao']
     data_hoje = date.today().isoformat()
 
+    # Validação 0: data prevista não pode ser anterior a hoje.
+    # O HTML já restringe isso via atributo min="", mas isso é só
+    # client-side: um POST direto (ou navegador sem JS) contornaria a
+    # checagem sem isso aqui.
+    if data_devolucao < data_hoje:
+        flash('ERRO: A data de devolução prevista não pode ser anterior a hoje.', 'erro')
+        return redirect(url_for('index'))
+
     # Validação 1: Aluno com atraso
     if aluno_tem_atraso(matricula):
         flash('BLOQUEADO: O aluno possui empréstimos em atraso!', 'erro')
         return redirect(url_for('index'))
 
-    conn = sqlite3.connect('database.db')
+    conn = get_conn()
     cursor = conn.cursor()
-    
+
     # Validação 2: Equipamento já emprestado
     cursor.execute('''
-        SELECT COUNT(*) FROM emprestimos 
+        SELECT COUNT(*) FROM emprestimos
         WHERE numero_serie_equipamento = ? AND status = 'Ativo'
     ''', (num_serie,))
-    
+
     if cursor.fetchone()[0] > 0:
         conn.close()
         flash('ERRO: Este equipamento já se encontra emprestado!', 'erro')
@@ -156,12 +207,49 @@ def adicionar_emprestimo():
         INSERT INTO emprestimos (matricula_aluno, numero_serie_equipamento, data_emprestimo, data_devolucao_prevista, status)
         VALUES (?, ?, ?, ?, 'Ativo')
     ''', (matricula, num_serie, data_hoje, data_devolucao))
-    
+
     conn.commit()
     conn.close()
-    
+
     flash('Empréstimo realizado com sucesso!', 'sucesso')
     return redirect(url_for('index'))
+
+
+# Rota para registrar a devolução de um equipamento emprestado.
+# Esta rota não existia na versão anterior: não havia como encerrar um
+# empréstimo, então o equipamento e o aluno ficavam presos indefinidamente
+# no estado "emprestado" / "bloqueado".
+@app.route('/devolver_emprestimo/<int:emprestimo_id>', methods=['POST'])
+def devolver_emprestimo(emprestimo_id):
+    hoje = date.today().isoformat()
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT status FROM emprestimos WHERE id = ?", (emprestimo_id,))
+    registro = cursor.fetchone()
+
+    if registro is None:
+        conn.close()
+        flash('Erro: Empréstimo não encontrado.', 'erro')
+        return redirect(url_for('index'))
+
+    if registro[0] != 'Ativo':
+        conn.close()
+        flash('Erro: Este empréstimo já foi encerrado anteriormente.', 'erro')
+        return redirect(url_for('index'))
+
+    cursor.execute('''
+        UPDATE emprestimos
+        SET status = 'Devolvido', data_devolucao_real = ?
+        WHERE id = ? AND status = 'Ativo'
+    ''', (hoje, emprestimo_id))
+
+    conn.commit()
+    conn.close()
+
+    flash('Devolução registrada com sucesso!', 'sucesso')
+    return redirect(url_for('index'))
+
 
 if __name__ == '__main__':
     init_db()

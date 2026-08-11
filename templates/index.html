@@ -157,6 +157,7 @@
                             <th>Matrícula do Aluno</th>
                             <th>Data Empréstimo</th>
                             <th>Previsão Devolução</th>
+                            <th>Ação</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -166,9 +167,14 @@
                             <td>{{ emp[1] }}</td>
                             <td>{{ emp[3] }}</td>
                             <td>{{ emp[4] }}</td>
+                            <td>
+                                <form action="{{ url_for('devolver_emprestimo', emprestimo_id=emp[0]) }}" method="POST" onsubmit="return confirm('Confirmar devolução deste equipamento?');">
+                                    <button type="submit" class="btn-secondary">Devolver</button>
+                                </form>
+                            </td>
                         </tr>
                         {% else %}
-                        <tr><td colspan="4">Nenhum empréstimo ativo no momento.</td></tr>
+                        <tr><td colspan="5">Nenhum empréstimo ativo no momento.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
